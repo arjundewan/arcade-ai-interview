@@ -2,6 +2,58 @@
 
 Welcome to the Arcade AI Interview Challenge! This project tests your ability to work with AI multimodal APIs, and be creative with your problem solving
 
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Python 3.10+
+- An OpenAI API key with access to `gpt-4o-mini` and `gpt-image-1`
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Set Up Your API Key
+
+Create a `.env` file in the project root with your OpenAI API key:
+OPENAI_API_KEY=your-api-key-here
+
+Optional (cost control):
+ENABLE_CACHE=1
+
+> **Note:** The `.env` file is already in `.gitignore` for your security.
+
+### 3. Run the Project
+
+To generate the summary markdown and social image, run:
+
+```bash
+python flow_parser.py
+# or specify a custom input file
+python flow_parser.py path/to/flow.json
+```
+
+- This will read `flow.json` and output:
+
+  - `output/flow_summary.md` (the markdown report)
+  - `output/flow_social_image.png` (the social media image)
+
+  The output directory already contains a sample report and image as an example.
+
+### 4. Caching (Cost Management)
+
+This project includes simple on-disk caching for API responses to control cost and speed up iteration.
+
+- Summary cache: `.cache/summary-*.md`
+- Image cache: `.cache/image-*.png`
+
+Controls:
+
+- Enable/disable via `ENABLE_CACHE=1` (default) or `ENABLE_CACHE=0` in your environment or `.env`.
+- Clear cache: `rm -rf .cache/`
+
 ## 🎯 Challenge Overview
 
 You've been provided with a `flow.json` file that contains data from an Arcade flow recording. Your task is to build a script that analyzes this flow data and creates a comprehensive report.
