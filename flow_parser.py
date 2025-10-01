@@ -1,6 +1,8 @@
 import json
 import sys
 import os
+import base64
+import requests
 
 try:
     from dotenv import load_dotenv
@@ -197,6 +199,102 @@ def generate_openai_summary(report):
         print(f"Error: OpenAI request failed: {e}", file=sys.stderr)
         return None
 
+# generate social media image
+def generate_social_image(report, out_path="output/flow_social_image.png"):
+    # get OpenAI API key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("Error: OPENAI_API_KEY is not set in environment.", file=sys.stderr)
+        return False
+
+    try:
+        from openai import OpenAI
+    except Exception as e:
+        print(f"Error: failed to import OpenAI client: {e}", file=sys.stderr)
+        return False
+
+    try:
+        client = OpenAI()
+
+        meta = report.get("meta") or {}
+        steps = report.get("steps") or []
+
+        # build minimal context for image generation
+        name = meta.get("name") or "User Flow"
+        
+        # extract key actions
+        actions = []
+        for s in steps:
+            click_text = s.get("clickText")
+            if click_text:
+                actions.append(click_text)
+        
+        actions_summary = ", ".join(actions[:5]) if actions else "browsing and interacting"
+
+        # prompt that uses flow metadata
+        prompt = (
+            f"Create a vibrant, professional social media graphic for a product demo titled '{name}'. "
+            f"The visual should represent a compilation of actions like: {actions_summary}. "
+            f"Use modern UI/UX design elements, clean layout, and engaging colors. "
+            f"Style: matching the flow's theme, professional, tech-focused. No text overlay needed."
+        )
+
+        # generate image using optimal model
+        response = client.images.generate(
+            model="gpt-image-1",
+            prompt=prompt,
+        )
+
+        # handle base64 or URL payloads for gpt-image-1
+        image_data = response.data[0]
+        b64_payload = None
+        image_url = None
+
+        try:
+            # SDK object attributes
+            b64_payload = getattr(image_data, "b64_json", None)
+            image_url = getattr(image_data, "url", None)
+        except Exception:
+            pass
+
+        # fallback if dict-like
+        if b64_payload is None and isinstance(image_data, dict):
+            b64_payload = image_data.get("b64_json")
+            image_url = image_data.get("url", image_url)
+
+        out_dir = os.path.dirname(out_path) or "."
+        os.makedirs(out_dir, exist_ok=True)
+
+        if b64_payload:
+            try:
+                img_bytes = base64.b64decode(b64_payload)
+                with open(out_path, "wb") as f:
+                    f.write(img_bytes)
+                return True
+            except Exception as decode_err:
+                print(f"Error: failed to decode base64 image: {decode_err}", file=sys.stderr)
+                return False
+
+        if image_url:
+            try:
+                with requests.get(image_url, stream=True, timeout=30) as r:
+                    r.raise_for_status()
+                    with open(out_path, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                return True
+            except Exception as download_err:
+                print(f"Error: failed to download image: {download_err}", file=sys.stderr)
+                return False
+
+        print("Error: image generation returned no data.", file=sys.stderr)
+        return False
+
+    except Exception as e:
+        print(f"Error: image generation failed: {e}", file=sys.stderr)
+        return False
+
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "flow.json"
 
@@ -210,14 +308,20 @@ if __name__ == "__main__":
     # generate summary of the report
     summary = generate_openai_summary(report)
 
-    # decide output path
-    output_path = os.path.join("output", "flow_summary.md")
+    # decide output paths
+    summary_path = os.path.join("output", "flow_summary.md")
+    image_path = os.path.join("output", "flow_social_image.png")
 
+    # write summary
     if summary:
-        ok = write_summary_to_file(summary, output_path)
+        ok = write_summary_to_file(summary, summary_path)
         if ok:
-            print(f"\n✓ Summary written to {output_path}")
+            print(f"\n✓ Summary written to {summary_path}")
     else:
         print("\n(Note) OpenAI summary not available.")
         placeholder = "# Flow Summary\n\nOpenAI summary not available. See stderr for details."
-        write_summary_to_file(placeholder, output_path)
+        write_summary_to_file(placeholder, summary_path)
+
+    # generate social media image
+    if generate_social_image(report, image_path):
+        print(f"✓ Social image written to {image_path}")
