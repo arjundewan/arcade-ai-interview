@@ -1,5 +1,12 @@
 import json
 import sys
+import os
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
 
 # load flow.json with error handling
 def load_flow(path):
@@ -92,6 +99,84 @@ def build_report(flow):
         "steps": extract_steps(steps),
     }
 
+# call OpenAI to produce brief summary of interactions
+def generate_openai_summary(report):
+    # get OpenAI API key
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        print("Error: OPENAI_API_KEY is not set in environment.", file=sys.stderr)
+        return None
+
+    try:
+        from openai import OpenAI
+    except Exception as e:
+        print(f"Error: failed to import OpenAI client: {e}", file=sys.stderr)
+        return None
+
+    try:
+        client = OpenAI()
+
+        meta = report.get("meta") or {}
+        steps = report.get("steps") or []
+
+        # build a compact description of the interactions
+        action_lines = []
+        for s in steps:
+            t = s.get("type")
+            click_text = s.get("clickText")
+            title = s.get("pageTitle") or s.get("title")
+            if t == "CHAPTER" and title:
+                action_lines.append(f"CHAPTER: {title}")
+            elif click_text:
+                action_lines.append(f"{t}: {click_text}")
+            else:
+                # fallback to type + page title, if available
+                if title:
+                    action_lines.append(f"{t}: {title}")
+                else:
+                    action_lines.append(str(t))
+
+        # cap context at 25 actions to limit cost
+        joined_actions = "\n".join(action_lines[:25])
+
+        system_prompt = (
+            """You are a helpful assistant that writes concise 2-4 sentence summaries of user product flows. 
+            Be clear, friendly, and avoid redundancy."""
+        )
+        user_prompt = (
+            "Summarize the user's goal and what they did based on this data.\n\n"
+            f"Name: {meta.get('name')}\n"
+            f"Use Case: {meta.get('useCase')}\n\n"
+            "Actions (ordered):\n"
+            f"{joined_actions}"
+        )
+
+        # use small but sufficient model
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=400,
+        )
+
+        try:
+            summary = (resp.choices[0].message.content or "").strip()
+        except Exception:
+            summary = ""
+
+        if not summary:
+            print("Error: received empty summary from OpenAI.", file=sys.stderr)
+            return None
+
+        return summary
+
+    except Exception as e:
+        print(f"Error: OpenAI request failed: {e}", file=sys.stderr)
+        return None
+
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "flow.json"
 
@@ -99,9 +184,18 @@ if __name__ == "__main__":
     if data is None:
         sys.exit(1)
 
+    # build the report
     report = build_report(data)
     try:
         print(json.dumps(report, indent=2))
     except Exception as e:
         print(f"Error: failed to serialize report: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # generate summary of the report
+    summary = generate_openai_summary(report)
+    if summary:
+        print("\nOpenAI summary:\n")
+        print(summary)
+    else:
+        print("\n(Note) OpenAI summary not available.")
