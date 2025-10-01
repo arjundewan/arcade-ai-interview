@@ -99,6 +99,21 @@ def build_report(flow):
         "steps": extract_steps(steps),
     }
 
+# write summary to markdown file
+def write_summary_to_file(summary_text, out_path="output/flow_summary.md"):
+    try:
+        # ensure output directory exists
+        out_dir = os.path.dirname(out_path) or "."
+        os.makedirs(out_dir, exist_ok=True)
+
+        # write markdown content
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write((summary_text or "").strip() + "\n")
+        return True
+    except Exception as e:
+        print(f"Error: failed to write summary to {out_path}: {e}", file=sys.stderr)
+        return False
+
 # call OpenAI to produce brief summary of interactions
 def generate_openai_summary(report):
     # get OpenAI API key
@@ -140,11 +155,16 @@ def generate_openai_summary(report):
         joined_actions = "\n".join(action_lines[:25])
 
         system_prompt = (
-            """You are a helpful assistant that writes concise 2-4 sentence summaries of user product flows. 
-            Be clear, friendly, and avoid redundancy."""
+            """You are a helpful assistant that analyzes user product flows.
+
+            You will be provided with a name, use case, metadata, and a list of ordered actions that the user took.
+            Your task is to first provide a summary of the the user's goal and what they did based on the actions.
+            Then, you will list all of the user's actions in order in a human readable format (e.g.  (i.e. "Clicked on checkout", "Search for X").
+            
+            Be clear, friendly, and avoid redundancy.
+            Be sure to output your response in markdown format."""
         )
         user_prompt = (
-            "Summarize the user's goal and what they did based on this data.\n\n"
             f"Name: {meta.get('name')}\n"
             f"Use Case: {meta.get('useCase')}\n\n"
             "Actions (ordered):\n"
@@ -186,16 +206,18 @@ if __name__ == "__main__":
 
     # build the report
     report = build_report(data)
-    try:
-        print(json.dumps(report, indent=2))
-    except Exception as e:
-        print(f"Error: failed to serialize report: {e}", file=sys.stderr)
-        sys.exit(1)
 
     # generate summary of the report
     summary = generate_openai_summary(report)
+
+    # decide output path
+    output_path = os.path.join("output", "flow_summary.md")
+
     if summary:
-        print("\nOpenAI summary:\n")
-        print(summary)
+        ok = write_summary_to_file(summary, output_path)
+        if ok:
+            print(f"\n✓ Summary written to {output_path}")
     else:
         print("\n(Note) OpenAI summary not available.")
+        placeholder = "# Flow Summary\n\nOpenAI summary not available. See stderr for details."
+        write_summary_to_file(placeholder, output_path)
